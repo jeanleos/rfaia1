@@ -71,8 +71,8 @@
 L'apprentissage profond en vision par ordinateur s'est développé à travers trois grands axes :
 \begin{enumerate}
     \item \textbf{Les réseaux entièrement connectés (MLP)} se basent sur la rétropropagation du gradient qui utilise la formule de la dérivation en chaîne. Ces réseaux permettent d'apprendre des frontières de décision qui ne sont pas linéaires sans nécessiter l'astuce du noyau des SVM classiques, mais ne tiennent pas compte de la topologie 2D des images.
-    \item \textbf{Les réseaux de neurones convolutifs (CNN)} sont construits en partageant les poids des convolutions, ainsi que la connectivité locale. Les CNN utilisent les biais inductifs de localité spatiale et d'équivariance par translation (complétée par l'invariance locale qu'apporte le \textit{pooling}), ce qui leur a permis de devenir la référence sur des jeux d'images tels que MNIST et CIFAR-10.
-    \item \textbf{Les Vision Transformers (ViT)} sont inspirés du traitement du langage naturel. Les ViT n'utilisent pas de biais de localité lorsqu'ils traitent l'image comme une séquence de patchs connectés entre eux par un mécanisme d'auto-attention globale.
+    \item \textbf{Les réseaux de neurones convolutifs (CNN)} sont construits en partageant les poids des convolutions, ainsi que la connectivité locale. Les CNN utilisent les biais inductifs de localité spatiale et d'équivariance par translation (complétée par l'invariance locale qu'apporte le \textit{pooling}), ce qui leur a permis de devenir la référence sur des jeux d'images tels que MNIST et CIFAR-10~\cite{lecun1998, krizhevsky2012}.
+    \item \textbf{Les Vision Transformers (ViT)} sont inspirés du traitement du langage naturel. Les ViT n'utilisent pas de biais de localité lorsqu'ils traitent l'image comme une séquence de patchs connectés entre eux par un mécanisme d'auto-attention globale~\cite{dosovitskiy2021}.
 \end{enumerate}
 
 \noindent
@@ -428,7 +428,7 @@ L'effet reste modéré sur ce jeu simple, mais il est possible d'observer que l'
 
 \subsection{Apprentissage du réseau}
 \paragraph{13. Lire et tester le code fourni.}
- Le code fourni (LeNet-5 sur MNIST, SGD $\eta = 0.1$, batch 128) valide la boucle d'apprentissage : après 2 époques, on obtient $96.41\%$ en train et $97.40\%$ en test ($98.40\%$ et $98.44\%$ après 5 époques).
+ Le code fourni (LeNet-5~\cite{lecun1998} sur MNIST, SGD $\eta = 0.1$, batch 128) valide la boucle d'apprentissage : après 2 époques, on obtient $96.41\%$ en train et $97.40\%$ en test ($98.40\%$ et $98.44\%$ après 5 époques).
 
 \paragraph{14. $\bigstar$ Dans le code fourni, quelle est la différence majeure entre la manière de calculer la perte et la précision en train et en test (en dehors de la différence de données) ?}
  En train, la perte et la précision sont calculées en moyenne glissante batch par batch pendant que les poids sont modifiés. En test, le modèle est figé en mode \texttt{eval()} et évalué de façon déterministe.
@@ -462,16 +462,31 @@ $\bigstar$ Pour chaque méthode mise en œuvre, nous indiquons en une phrase son
 
 \subsection{Augmentation du nombre d'exemples par \textit{data augmentation}}
 \paragraph{22. Décrire vos résultats expérimentaux et les comparer aux précédents.}
- \textit{Principe :} à chaque époque, chaque image d'entraînement est remplacée par une variante aléatoire (recadrage $28 \times 28$ et symétrie horizontale avec probabilité $1/2$) ; en test, on applique un recadrage central $28 \times 28$. \textit{Pourquoi cela aide :} le réseau ne voit jamais deux fois exactement la même image, ce qui l'empêche de mémoriser et l'oblige à apprendre des caractéristiques invariantes à ces transformations. \textit{Résultats (Run A : standardisation + augmentation, 20 époques) :} précision train $86.68\%$, précision test \textbf{$78.97\%$} (contre $98.97\%$ / $68.81\%$ pour la base), soit $+10.2$ points en test et un écart train/test ramené de $30$ à $7.7$ points. La perte de test ne remonte plus : elle se stabilise vers $0.62$--$0.65$ (contre $1.63$). La précision en train est plus basse car la tâche d'entraînement est plus difficile, ce qui est attendu. Le coût est un temps par époque plus élevé ($\approx 16$\,s contre $7$\,s), dû aux transformations appliquées à la volée.
+ \textit{Principe :} à chaque époque, chaque image d'entraînement est remplacée par une variante aléatoire (recadrage $28 \times 28$ et symétrie horizontale avec probabilité $1/2$, augmentations popularisées par AlexNet~\cite{krizhevsky2012}) ; en test, on applique un recadrage central $28 \times 28$. \textit{Pourquoi cela aide :} le réseau ne voit jamais deux fois exactement la même image, ce qui l'empêche de mémoriser et l'oblige à apprendre des caractéristiques invariantes à ces transformations. \textit{Résultats (Run A : standardisation + augmentation, 20 époques) :} précision train $86.68\%$, précision test \textbf{$78.97\%$} (contre $98.97\%$ / $68.81\%$ pour la base), soit $+10.2$ points en test et un écart train/test ramené de $30$ à $7.7$ points. La perte de test ne remonte plus : elle se stabilise vers $0.62$--$0.65$ (contre $1.63$). La précision en train est plus basse car la tâche d'entraînement est plus difficile, ce qui est attendu. Le coût est un temps par époque plus élevé ($\approx 16$\,s contre $7$\,s), dû aux transformations appliquées à la volée.
 
 \paragraph{23. La symétrie horizontale semble-t-elle utilisable sur tous les types d'images ? Dans quels cas peut-elle l'être ou non ?}
  Valide pour les scènes naturelles et les objets symétriques ; totalement invalide pour les chiffres (MNIST : $6$ vs $9$), les lettres manuscrites (b vs d) ou les panneaux de signalisation routière.
 
 \paragraph{24. Quelles limites voyez-vous à ce type d'augmentation de données par transformation du jeu de données ?}
- Ne génère pas de nouvelle information sémantique réelle, alourdit le temps de chargement des données, et peut dénaturer l'objet en cas de transformations extrêmes.
+ \begin{itemize}
+    \item \textbf{Pas de nouvelle information :} les variantes sont des transformations d'images existantes. Elles n'apportent ni nouveaux objets, ni nouveaux points de vue, ni nouvelles conditions d'acquisition (éclairage, arrière-plan), et ne remplacent donc pas de vraies données supplémentaires.
+    \item \textbf{Invariances choisies à la main :} chaque transformation impose une invariance que l'on suppose valide pour la tâche. Si elle ne l'est pas (symétrie pour les chiffres, question 23 ; rotation pour l'orientation d'une scène), l'augmentation introduit des exemples mal étiquetés.
+    \item \textbf{Risque de dénaturer l'objet :} un recadrage trop agressif peut couper l'objet d'intérêt, de sorte que l'étiquette ne correspond plus au contenu visible.
+    \item \textbf{Décalage train/test :} le réseau est entraîné sur des images transformées et évalué sur des images non transformées (recadrage central), ce qui crée un léger écart de distribution.
+    \item \textbf{Coût :} les transformations appliquées à la volée sur CPU ralentissent l'entraînement (environ 16\,s contre 7\,s par époque dans nos runs) et la tâche plus difficile demande plus d'époques pour converger.
+\end{itemize}
 
 \paragraph{25. Bonus : d'autres méthodes d'augmentation de données sont possibles. Lesquelles ? En tester certaines.}
- Mixup (mélange linéaire d'images et de labels), CutMix (remplacement d'un rectangle d'image par une autre), ColorJitter (variation de luminosité/contraste) et RandAugment.
+ Nous n'avons pas testé ces méthodes faute de temps ; nous décrivons les principales :
+\begin{itemize}
+    \item \textbf{Transformations photométriques} (\texttt{ColorJitter}) : variations aléatoires de luminosité, contraste, saturation et teinte, pour rendre le réseau robuste aux conditions d'éclairage.
+    \item \textbf{Transformations géométriques supplémentaires} : petites rotations, translations, changements d'échelle (\texttt{RandomAffine}, \texttt{RandomResizedCrop}).
+    \item \textbf{Cutout / Random Erasing} : masquage d'un rectangle aléatoire de l'image, qui force le réseau à utiliser plusieurs parties de l'objet plutôt qu'un seul indice discriminant.
+    \item \textbf{Mixup} : combinaison convexe de deux images et de leurs étiquettes, $\tilde{x} = \lambda x_i + (1-\lambda) x_j$ et $\tilde{y} = \lambda y_i + (1-\lambda) y_j$ avec $\lambda \sim \text{Beta}(\alpha, \alpha)$. Cela lisse la frontière de décision et réduit la sur-confiance.
+    \item \textbf{CutMix} : un rectangle d'une image est collé dans une autre, et les étiquettes sont mélangées au prorata de la surface. Il combine les avantages de Cutout et de Mixup.
+    \item \textbf{Politiques apprises ou aléatoires} (AutoAugment, RandAugment) : application d'une séquence de transformations tirées dans une liste, avec une magnitude réglée par un ou deux hyperparamètres.
+\end{itemize}
+Sur CIFAR-10, Cutout, Mixup et CutMix apportent typiquement un à deux points de précision supplémentaires sur des réseaux plus profonds ; ils sont d'autant plus utiles que le modèle surapprend.
 
 \subsection{Variantes de l'algorithme d'optimisation}
 \paragraph{26. Décrire vos résultats expérimentaux et les comparer aux précédents, y compris en termes de stabilité de l'apprentissage.}
@@ -485,13 +500,20 @@ $\bigstar$ Pour chaque méthode mise en œuvre, nous indiquons en une phrase son
 
 \subsection{Régularisation du réseau par \textit{dropout}}
 \paragraph{29. Décrire vos résultats expérimentaux et les comparer aux précédents.}
- \textit{Principe :} \texttt{nn.Dropout(p=0.5)} entre \texttt{fc4} et \texttt{fc5} annule aléatoirement la moitié des activations de \texttt{fc4} à chaque passe d'entraînement. \textit{Pourquoi cela aide :} \texttt{fc4} concentre $86\%$ des paramètres ; le dropout l'empêche de mémoriser en forçant des représentations redondantes et robustes. \textit{Résultats :} le dropout a été évalué conjointement avec la batch normalization (Run B, en plus de la standardisation et de l'augmentation), et non isolément. Run B obtient $84.51\%$ en train et $81.78\%$ en test, contre $86.68\%$ / $78.97\%$ pour le Run A : la précision en train baisse (effet régularisant attendu) tandis que celle en test progresse de $2.8$ points, et l'écart train/test passe de $7.7$ à $2.7$ points. La perte de test descend à $0.53$ (contre $0.65$) et décroît encore à l'époque 20.
+ \textit{Principe :} le \textit{dropout}~\cite{srivastava2014}, ici \texttt{nn.Dropout(p=0.5)} entre \texttt{fc4} et \texttt{fc5} annule aléatoirement la moitié des activations de \texttt{fc4} à chaque passe d'entraînement. \textit{Pourquoi cela aide :} \texttt{fc4} concentre $86\%$ des paramètres ; le dropout l'empêche de mémoriser en forçant des représentations redondantes et robustes. \textit{Résultats :} le dropout a été évalué conjointement avec la batch normalization (Run B, en plus de la standardisation et de l'augmentation), et non isolément. Run B obtient $84.51\%$ en train et $81.78\%$ en test, contre $86.68\%$ / $78.97\%$ pour le Run A : la précision en train baisse (effet régularisant attendu) tandis que celle en test progresse de $2.8$ points, et l'écart train/test passe de $7.7$ à $2.7$ points. La perte de test descend à $0.53$ (contre $0.65$) et décroît encore à l'époque 20.
 
 \paragraph{30. Qu'est-ce que la régularisation en général ?}
  Toute modification apportée à l'algorithme d'apprentissage visant à réduire l'erreur en test (généralisation) sans nécessairement réduire l'erreur d'entraînement.
 
 \paragraph{31. Rechercher et discuter les interprétations possibles de l'effet du \textit{dropout} sur le comportement d'un réseau qui l'utilise.}
- (1) Empêche la co-adaptation complexe des neurones en forçant chaque unité à apprendre des caractéristiques individuellement robustes ; (2) Simule la moyenne géométrique d'un ensemble virtuel de $2^N$ sous-réseaux amincis.
+ Plusieurs interprétations complémentaires ont été proposées~\cite{srivastava2014} :
+\begin{itemize}
+    \item \textbf{Réduction de la co-adaptation :} un neurone ne peut pas compter sur la présence d'un autre neurone précis pour corriger ses erreurs. Chaque unité doit apprendre des caractéristiques utiles par elles-mêmes, ce qui donne des représentations plus redondantes et plus robustes.
+    \item \textbf{Ensemble implicite :} chaque passe d'entraînement utilise un sous-réseau aminci différent parmi $2^N$ possibles ($N$ neurones concernés), tous partageant les mêmes poids. En test, utiliser le réseau complet avec des activations à l'échelle revient à approcher la moyenne (géométrique) des prédictions de cet ensemble, à un coût bien inférieur à l'entraînement de réseaux séparés.
+    \item \textbf{Injection de bruit :} le dropout ajoute un bruit multiplicatif sur les activations, ce qui empêche le réseau de s'appuyer sur des configurations très précises des activations ; on peut le rapprocher de l'augmentation de données appliquée aux représentations internes.
+    \item \textbf{Régularisation explicite :} pour un modèle linéaire, le dropout équivaut en espérance à une pénalité de type $L_2$ adaptative, pondérée par la variance de chaque entrée.
+\end{itemize}
+Dans notre réseau, ces effets se traduisent par une précision en train plus basse et un écart train/test réduit (question 29).
 
 \paragraph{32. Quelle est l'influence de l'hyperparamètre de cette couche ?}
  Si $p=0$, aucune régularisation ; si $p$ est trop élevé ($> 0.7$), le réseau sous-apprend par manque de capacité de transmission du gradient. La valeur standard est $p=0.5$.
@@ -501,7 +523,7 @@ $\bigstar$ Pour chaque méthode mise en œuvre, nous indiquons en une phrase son
 
 \subsection{Utilisation de la \textit{batch normalization}}
 \paragraph{34. Décrire vos résultats expérimentaux et les comparer aux précédents.}
- \textit{Principe :} après chaque convolution, une couche \texttt{BatchNorm2d} normalise chaque canal avec la moyenne et la variance du mini-batch, puis applique une transformation affine apprise. \textit{Pourquoi cela aide :} les distributions d'activations restent stables d'une couche à l'autre pendant l'apprentissage, ce qui autorise des pas plus grands et accélère la convergence. \textit{Résultats (Run B : standardisation + augmentation + BN + dropout) :} la convergence est nettement plus rapide : en fin de première époque, la précision est de $44.2\%$ en train et $46.7\%$ en test, contre $33.7\%$ / $44.6\%$ pour le Run A, et le Run B dépasse $70\%$ en test dès l'époque 4 (époque 6 pour le Run A). Après 20 époques, la précision en test atteint \textbf{$81.78\%$} (meilleur résultat de nos CNN), pour environ 16\,s par époque. Comme la perte de test diminue encore à la dernière époque, un entraînement plus long (éventuellement avec un scheduler) devrait encore améliorer ce score.
+ \textit{Principe :} après chaque convolution, une couche \texttt{BatchNorm2d}~\cite{ioffe2015} normalise chaque canal avec la moyenne et la variance du mini-batch, puis applique une transformation affine apprise. \textit{Pourquoi cela aide :} les distributions d'activations restent stables d'une couche à l'autre pendant l'apprentissage, ce qui autorise des pas plus grands et accélère la convergence. \textit{Résultats (Run B : standardisation + augmentation + BN + dropout) :} la convergence est nettement plus rapide : en fin de première époque, la précision est de $44.2\%$ en train et $46.7\%$ en test, contre $33.7\%$ / $44.6\%$ pour le Run A, et le Run B dépasse $70\%$ en test dès l'époque 4 (époque 6 pour le Run A). Après 20 époques, la précision en test atteint \textbf{$81.78\%$} (meilleur résultat de nos CNN), pour environ 16\,s par époque. Comme la perte de test diminue encore à la dernière époque, un entraînement plus long (éventuellement avec un scheduler) devrait encore améliorer ce score.
 
 \chapter{CNN et introduction aux Vision Transformers (1-cde)}
 
@@ -678,7 +700,7 @@ ViT & $807\,434$ & 15 & $74.35\%$ & $72.94\%$ & $1.4$ & $\approx 12.7$\,s \\
     \item \textbf{Précision en test :} $72.94\%$ pour le ViT, contre $81.39\%$ pour le CNN Run B, soit $8.5$ points de moins malgré des données et une boucle identiques. Le ViT fait mieux que le CNN de base ($70.72\%$), mais seulement grâce à la régularisation (augmentation et \textit{weight decay}).
     \item \textbf{Écart train/test :} faible pour les deux ($1.4$ point pour le ViT, $2.9$ pour le CNN). Le ViT ne surapprend pas : il \textbf{sous-apprend}. Sa précision en train n'est que de $74.35\%$ et progresse encore à la dernière époque, de même que la précision en test, et les deux pertes décroissent toujours. Plus d'époques amélioreraient donc son score, sans probablement rattraper le CNN.
     \item \textbf{Temps par époque :} mesuré sur la même carte (RTX 4080), le calcul pur d'une époque d'entraînement (391 batchs de 128) prend $\approx 12.7$\,s pour le ViT contre $\approx 3.7$\,s pour le CNN, soit $3.4$ fois plus, et le ViT utilise $3$ fois plus de mémoire GPU ($293$ contre $96$\,Mo). Les produits $QK^\top$ et les MLP sur 50 tokens dans chaque bloc coûtent plus cher que trois convolutions sur de petites cartes. Dans l'exécution complète du notebook (GPU Colab), l'écart est beaucoup plus faible ($\approx 18$\,s par époque pour le ViT contre $\approx 15$\,s pour le CNN), car le chargement et l'augmentation des images sur CPU représentent une grande part du temps.
-    \item \textbf{Interprétation (biais inductifs contre besoin de données) :} le CNN possède des biais inductifs forts (localité, partage des poids, équivariance par translation) qui lui permettent d'apprendre efficacement sur $50\,000$ images. Le ViT n'en a presque aucun : chaque token peut interagir avec tous les autres dès la première couche, et la structure 2D n'est connue que via les plongements positionnels appris. Il doit donc apprendre ces régularités à partir des données, ce qui exige des volumes massifs (ImageNet-21k, JFT-300M) ou un pré-entraînement pour dépasser les CNN.
+    \item \textbf{Interprétation (biais inductifs contre besoin de données) :} le CNN possède des biais inductifs forts (localité, partage des poids, équivariance par translation) qui lui permettent d'apprendre efficacement sur $50\,000$ images. Le ViT n'en a presque aucun : chaque token peut interagir avec tous les autres dès la première couche, et la structure 2D n'est connue que via les plongements positionnels appris. Il doit donc apprendre ces régularités à partir des données, ce qui exige des volumes massifs (ImageNet-21k, JFT-300M) ou un pré-entraînement pour dépasser les CNN~\cite{dosovitskiy2021}.
 \end{itemize}
 
 \chapter*{Conclusion}
