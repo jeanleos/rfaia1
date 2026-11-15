@@ -362,13 +362,19 @@ L'effet reste modéré sur ce jeu simple, mais il est possible d'observer que l'
 \end{itemize}
 
 \paragraph{3. $\bigstar$ Pourquoi utilise-t-on le \textit{pooling} spatial ?}
- Le pooling spatial sert à : (1) réduire la dimension spatiale et le coût calculatoire/mémoire ; (2) augmenter le champ récepteur des couches suivantes ; (3) apporter une invariance locale aux petites translations et distorsions.
+ Le pooling spatial (par exemple un max-pooling $2 \times 2$ de stride 2) remplace chaque voisinage par un résumé (maximum ou moyenne). Il sert à :
+\begin{itemize}
+    \item \textbf{Réduire la dimension spatiale :} chaque pooling $2 \times 2$ divise par 4 le nombre d'activations, donc le coût en calcul et en mémoire des couches suivantes, et le nombre de poids de la première couche dense (dans notre réseau, $64 \times 4 \times 4 = 1024$ entrées pour \texttt{fc4} au lieu de $64 \times 32 \times 32 = 65\,536$ sans pooling).
+    \item \textbf{Augmenter le champ récepteur :} après un pooling de stride 2, un noyau $5 \times 5$ couvre une zone deux fois plus grande de l'image (question 7), ce qui permet aux couches profondes d'agréger des motifs de plus en plus globaux sans grossir les noyaux.
+    \item \textbf{Apporter une invariance locale :} le maximum d'un voisinage ne change pas si le motif détecté se déplace d'un pixel à l'intérieur de ce voisinage. Le réseau devient ainsi robuste aux petites translations et déformations, ce qui complète l'équivariance de la convolution.
+\end{itemize}
+Le pooling n'a aucun paramètre. Sa contrepartie est une perte d'information sur la position précise des motifs, gênante pour les tâches de localisation fine (segmentation, détection).
 
 \paragraph{4. $\bigstar$ Supposons qu'on calcule la sortie d'un réseau convolutif classique (par exemple VGG16) pour une image plus grande que la taille prévue ($224 \times 224$). Peut-on (sans modifier l'image) utiliser tout ou partie des couches du réseau sur cette image ?}
  \textbf{Oui}, toute la partie convolutive et pooling peut s'appliquer sans modification à une image plus grande (opérations locales glissantes). En revanche, les couches fully-connected exigent un vecteur d'entrée de dimension fixe ; pour les adapter, on remplace la mise à plat par un \textit{Global Average Pooling} (GAP) ou on convertit les couches denses en convolutions $1 \times 1$ (principe des réseaux FCN).
 
 \paragraph{5. Si l'on ne s'intéresse qu'à un seul pixel de sortie, central, d'une convolution, comment modifier le filtre de convolution pour le rendre équivalent à une couche \textit{fully-connected} ?}
- Pour rendre le filtre équivalent à une couche dense sur un pixel central, on lui donne la taille exacte de l'entrée ($k_x = x, k_y = y$), avec $p=0$ et $s=1$. Le filtre couvre alors l'intégralité de l'image en une seule application, réalisant le produit scalaire complet.
+ Un neurone d'une couche dense dépend de toutes les entrées, alors qu'un pixel de sortie d'une convolution ne dépend que des $k \times k \times z$ entrées de son champ récepteur. Pour que le pixel central dépende de toute l'image, il faut que le filtre la couvre entièrement : on lui donne la taille de l'entrée ($k_x = x$, $k_y = y$, profondeur $z$), avec $p = 0$ (la sortie est alors un unique pixel, $x' = y' = 1$). Ce pixel vaut $\sum_{i,j,c} w_{i,j,c}\, x_{i,j,c} + b$, c'est-à-dire exactement le produit scalaire d'un neurone dense avec l'entrée aplatie. Avec $Q$ filtres de ce type, on obtient une couche dense à $Q$ sorties ; c'est l'équivalence utilisée pour convertir les couches denses en convolutions dans les réseaux entièrement convolutifs (question 4). Si l'on garde un padding qui conserve la taille ($p = (k-1)/2$), le même noyau $x \times y$ ($x$ et $y$ impairs) suffit pour que le pixel central voie toute l'image ; les autres pixels de sortie n'en voient alors qu'une partie, complétée par du padding.
 
 \paragraph{6. Une convolution non partagée (\textit{unshared convolution}) conserve la connectivité locale des convolutions mais sans partage de poids. Pour une telle couche, avec une entrée de forme $(B, C, H, W)$ et $Q$ filtres de taille $5 \times 5$, combien de paramètres (hors biais) y a-t-il ?}
  Dans une convolution non partagée (\textit{unshared convolution}), chaque position spatiale de sortie possède ses propres poids. Pour une entrée $(B, C, H, W)$ et $Q$ filtres de taille $5 \times 5$ (sans padding, stride 1), la sortie spatiale est de taille $(H-4) \times (W-4)$. Le nombre de paramètres (hors biais) est :
@@ -421,17 +427,27 @@ L'effet reste modéré sur ce jeu simple, mais il est possible d'observer que l'
 \textbf{Commentaire sur la répartition :} La couche dense \texttt{fc4} contient à elle seule $1\,025\,000$ paramètres, soit \textbf{$86\%$} du modèle, créant une vulnérabilité majeure au surapprentissage.
 
 \paragraph{11. Quel est le nombre total de poids à apprendre ? Le comparer au nombre d'exemples.}
- Le total est de $1\,191\,170$ poids pour $50\,000$ images d'entraînement (environ 24 poids par image). Les degrés de liberté excédant largement les données, le risque de mémorisation est critique.
+ Le total est de $1\,191\,170$ poids pour $50\,000$ images d'entraînement, soit environ 24 poids par image. Chaque image n'apporte qu'une étiquette parmi 10, donc au plus $\log_2 10 \approx 3.3$ bits d'information supervisée : le réseau a largement assez de degrés de liberté pour mémoriser l'ensemble d'entraînement. C'est ce que l'on observe à la question 18 (près de $99\%$ en train contre $69\%$ en test). Ce rapport n'est pas à lui seul une mesure de la capacité effective (la convolution impose de fortes contraintes et la descente de gradient a un effet régularisant implicite), mais il justifie le recours aux techniques de régularisation de la section suivante. On note aussi que $86\%$ de ces poids sont dans \texttt{fc4} : c'est là que la régularisation par dropout est la plus utile.
 
 \paragraph{12. Comparer le nombre de paramètres à apprendre avec celui de l'approche BoW et SVM.}
- Dans l'approche BoW + SVM, les descripteurs (SIFT) sont fixes et le classifieur linéaire sur un vocabulaire de taille $K \approx 1000$ n'apprend que $10 \times K \approx 10\,000$ paramètres. Le CNN a beaucoup plus de paramètres car il apprend conjointement la représentation et la décision.
+ Dans l'approche BoW + SVM, l'extracteur de caractéristiques (SIFT, descripteurs de dimension 128) est conçu à la main et n'a aucun paramètre appris. Les paramètres appris sont :
+\begin{itemize}
+    \item le dictionnaire visuel, obtenu par $K$-moyennes sans supervision : $128 \times K$ valeurs, soit $128\,000$ pour $K = 1000$ ;
+    \item le SVM linéaire en un-contre-tous sur l'histogramme de dimension $K$ : $10 \times (K + 1) \approx 10\,000$ paramètres.
+\end{itemize}
+Au total, environ $138\,000$ paramètres, dont seulement $10\,000$ appris de façon supervisée, contre $1\,191\,170$ pour le CNN, tous appris de bout en bout à partir des étiquettes. Le CNN a donc près de 10 fois plus de paramètres, car il apprend conjointement la représentation (les filtres) et la décision. C'est ce qui lui permet de dépasser nettement le BoW sur des images naturelles, mais aussi ce qui le rend plus exposé au surapprentissage et plus dépendant de la quantité de données.
 
 \subsection{Apprentissage du réseau}
 \paragraph{13. Lire et tester le code fourni.}
  Le code fourni (LeNet-5~\cite{lecun1998} sur MNIST, SGD $\eta = 0.1$, batch 128) valide la boucle d'apprentissage : après 2 époques, on obtient $96.41\%$ en train et $97.40\%$ en test ($98.40\%$ et $98.44\%$ après 5 époques).
 
 \paragraph{14. $\bigstar$ Dans le code fourni, quelle est la différence majeure entre la manière de calculer la perte et la précision en train et en test (en dehors de la différence de données) ?}
- En train, la perte et la précision sont calculées en moyenne glissante batch par batch pendant que les poids sont modifiés. En test, le modèle est figé en mode \texttt{eval()} et évalué de façon déterministe.
+ La différence tient au moment où les métriques sont calculées et au mode du modèle :
+\begin{itemize}
+    \item \textbf{En train :} le modèle est en mode \texttt{train()} et la perte et la précision de chaque batch sont accumulées dans une moyenne au fil de l'époque, \textit{pendant} que les poids sont mis à jour. La valeur affichée en fin d'époque est donc une moyenne sur des versions successives du modèle, dont les premières sont moins bonnes que la version finale.
+    \item \textbf{En test :} le modèle est en mode \texttt{eval()}, sans calcul de gradient ni mise à jour : toutes les images sont évaluées avec les mêmes poids, ceux de la fin de l'époque.
+\end{itemize}
+Deux conséquences : la métrique de train est biaisée défavorablement en début d'apprentissage (ce qui explique qu'à la première époque la précision de test soit meilleure que celle de train, question 17) ; et, une fois le dropout et la batch normalization ajoutés, ces couches se comportent différemment dans les deux modes (masquage aléatoire et statistiques du batch en train, identité et statistiques moyennes en test), ce qui fait que la précision de train sous-estime ce que le modèle obtiendrait sur ces mêmes images en mode \texttt{eval()}.
 
 \paragraph{15. Modifier le code pour utiliser CIFAR-10 et implémenter l'architecture demandée. Faire assez d'époques pour que le modèle ait fini de converger.}
  Le code est adapté à CIFAR-10 (\texttt{datasets.CIFAR10}) avec l'architecture ci-dessus ; \texttt{count\_parameters} confirme les $1\,191\,170$ paramètres. Le modèle de base est entraîné 20 époques (SGD, $\eta = 0.1$, batch 128, environ 7\,s par époque sur GPU), durée suffisante puisque la précision en test plafonne dès l'époque 8 à 10.
@@ -455,17 +471,31 @@ $\bigstar$ Pour chaque méthode mise en œuvre, nous indiquons en une phrase son
  \textit{Principe :} on soustrait à chaque canal sa moyenne $\mu = [0.491, 0.482, 0.447]$ et on divise par son écart-type $\sigma = [0.202, 0.199, 0.201]$. \textit{Pourquoi cela aide :} les entrées sont centrées et à la même échelle, ce qui conditionne mieux le problème d'optimisation et accélère la convergence. \textit{Résultats :} pour gagner du temps, la standardisation a été évaluée conjointement avec l'augmentation de données (Run A, voir question 22) et non isolément. Son effet propre est visible au démarrage : en fin de première époque, la précision en train passe de $22.3\%$ (base) à $33.7\%$ (Run A), et en test de $36.6\%$ à $44.6\%$, signe d'une convergence plus rapide.
 
 \paragraph{20. Pourquoi ne calculer l'image moyenne que sur les exemples d'entraînement, et normaliser les exemples de validation avec cette même image ?}
- Le jeu de test représente des données inconnues. Calculer les statistiques sur le test constituerait une \textbf{fuite d'information} (\textit{data leakage}).
+ Le jeu de test sert à estimer les performances sur des données jamais vues. La normalisation fait partie du modèle : ses statistiques $\mu$ et $\sigma$ sont des paramètres estimés à partir des données, au même titre que les poids. Les calculer sur le test (ou sur train et test réunis) ferait intervenir les données de test dans l'apprentissage : c'est une \textbf{fuite d'information} (\textit{data leakage}), qui rend l'évaluation optimiste. Par ailleurs, en situation réelle, on prédit souvent une image à la fois et on ne dispose pas d'un « jeu de test » sur lequel calculer des statistiques.
+
+Il faut en revanche appliquer \textit{exactement la même} transformation aux exemples de test : le réseau a appris sur des entrées centrées et réduites avec $\mu$ et $\sigma$ du train. Normaliser le test avec d'autres statistiques (ou ne pas le normaliser) décalerait la distribution des entrées par rapport à celle vue pendant l'apprentissage et dégraderait les prédictions.
 
 \paragraph{21. Bonus : il existe d'autres schémas de normalisation, comme la normalisation ZCA. Essayer d'autres méthodes, expliquer les différences et les comparer à celle demandée.}
- Le blanchiment ZCA (\textit{Zero-phase Component Analysis}) décorrèle l'ensemble des pixels via les vecteurs propres de la covariance, éliminant les redondances tout en préservant la structure visuelle spatiale.
+ Nous n'avons pas testé d'autre normalisation ; nous comparons les principales sur le plan théorique.
+\begin{itemize}
+    \item \textbf{Standardisation par canal (celle demandée) :} 3 moyennes et 3 écarts-types. Chaque canal est centré et réduit indépendamment, mais les fortes corrélations entre pixels voisins et entre canaux sont conservées.
+    \item \textbf{Normalisation par image :} chaque image est centrée et réduite avec ses propres statistiques. Cela supprime les variations globales de luminosité et de contraste, au prix de cette information.
+    \item \textbf{Blanchiment ACP :} sur les images aplaties ($d = 3 \times 32 \times 32 = 3072$), on centre puis on projette sur les vecteurs propres de la covariance $\Sigma = U \Lambda U^\top$ en divisant chaque composante par $\sqrt{\lambda_i + \varepsilon}$. Les composantes sont décorrélées et de variance 1, mais l'image résultante n'a plus de structure spatiale lisible.
+    \item \textbf{Blanchiment ZCA} (\textit{Zero-phase Component Analysis}) : $x_{\text{ZCA}} = U (\Lambda + \varepsilon I)^{-1/2} U^\top (x - \mu)$. On revient dans la base des pixels après le blanchiment. Parmi toutes les transformations qui décorrèlent les données, c'est celle qui reste la plus proche de l'image d'origine : l'image reste reconnaissable, les zones uniformes (redondantes) sont atténuées et les contours sont renforcés, ce qui met en avant l'information utile aux premiers filtres.
+\end{itemize}
+Le ZCA demande de calculer et de diagonaliser une matrice de covariance $3072 \times 3072$ sur le train (une seule fois), puis une multiplication matricielle par image. Le paramètre $\varepsilon$ est important : trop petit, il amplifie le bruit des composantes de faible variance ; trop grand, il rapproche le ZCA d'une simple standardisation. Avec la batch normalization, l'intérêt de ces prétraitements diminue, car les activations sont renormalisées à chaque couche.
 
 \subsection{Augmentation du nombre d'exemples par \textit{data augmentation}}
 \paragraph{22. Décrire vos résultats expérimentaux et les comparer aux précédents.}
  \textit{Principe :} à chaque époque, chaque image d'entraînement est remplacée par une variante aléatoire (recadrage $28 \times 28$ et symétrie horizontale avec probabilité $1/2$, augmentations popularisées par AlexNet~\cite{krizhevsky2012}) ; en test, on applique un recadrage central $28 \times 28$. \textit{Pourquoi cela aide :} le réseau ne voit jamais deux fois exactement la même image, ce qui l'empêche de mémoriser et l'oblige à apprendre des caractéristiques invariantes à ces transformations. \textit{Résultats (Run A : standardisation + augmentation, 20 époques) :} précision train $86.68\%$, précision test \textbf{$78.97\%$} (contre $98.97\%$ / $68.81\%$ pour la base), soit $+10.2$ points en test et un écart train/test ramené de $30$ à $7.7$ points. La perte de test ne remonte plus : elle se stabilise vers $0.62$--$0.65$ (contre $1.63$). La précision en train est plus basse car la tâche d'entraînement est plus difficile, ce qui est attendu. Le coût est un temps par époque plus élevé ($\approx 16$\,s contre $7$\,s), dû aux transformations appliquées à la volée.
 
 \paragraph{23. La symétrie horizontale semble-t-elle utilisable sur tous les types d'images ? Dans quels cas peut-elle l'être ou non ?}
- Valide pour les scènes naturelles et les objets symétriques ; totalement invalide pour les chiffres (MNIST : $6$ vs $9$), les lettres manuscrites (b vs d) ou les panneaux de signalisation routière.
+ Non : la symétrie horizontale n'est utilisable que si l'étiquette est invariante par symétrie, c'est-à-dire si l'image miroir est encore une image plausible de la même classe.
+\begin{itemize}
+    \item \textbf{Utilisable :} photos d'objets et de scènes naturelles comme CIFAR-10 (un chat ou une voiture vus en miroir restent un chat ou une voiture), images aériennes, imagerie où la latéralité n'a pas de sens.
+    \item \textbf{Non utilisable :} textes, chiffres et lettres (un « 3 » ou un « b » miroir n'est plus un caractère valide, et certaines paires se confondent comme b et d) ; panneaux routiers orientés (flèches « tourner à gauche » et « tourner à droite » échangent leur sens) ; imagerie médicale où le côté compte (le cœur est à gauche) ; tâches dont l'étiquette dépend de l'orientation (direction du regard, sens de déplacement).
+\end{itemize}
+Le même raisonnement vaut pour la symétrie verticale, rarement valide pour des photos car le haut et le bas d'une scène ne sont pas interchangeables, et pour les rotations.
 
 \paragraph{24. Quelles limites voyez-vous à ce type d'augmentation de données par transformation du jeu de données ?}
  \begin{itemize}
@@ -493,17 +523,37 @@ Sur CIFAR-10, Cutout, Mixup et CutMix apportent typiquement un à deux points de
  \textit{Principe :} le pas décroît exponentiellement à chaque époque, $\eta_t = \eta_0 \cdot 0.95^t$, soit $\eta_{20} \approx 0.36\,\eta_0$ après 20 époques. \textit{Résultats :} nos runs A et B ont été entraînés à pas constant ($\eta = 0.1$) ; le scheduler n'a pas fait l'objet d'un run séparé, nous ne pouvons donc pas en chiffrer le gain. Ces runs montrent en revanche le problème qu'il vise : avec un pas constant, la précision en test oscille de plusieurs points d'une époque à l'autre (par exemple, dans le Run B, $76.8\%$, $73.9\%$, $70.6\%$ puis $79.1\%$ entre les époques 8 et 11, et encore de 1 à 2 points en fin d'entraînement). La décroissance du pas doit amortir ces oscillations et rendre la précision finale plus stable et légèrement meilleure.
 
 \paragraph{27. Pourquoi cette méthode améliore-t-elle l'apprentissage ?}
- Un pas élevé permet de s'échapper rapidement des mauvais minima locaux au début, tandis qu'un pas réduit en fin d'entraînement permet d'atterrir précisément au fond de la cuvette d'optimisation.
+ Avec SGD, le gradient est estimé sur un mini-batch : il est bruité, et ce bruit fait osciller les poids autour d'un minimum avec une amplitude proportionnelle au pas $\eta$. Un pas constant impose donc un compromis :
+\begin{itemize}
+    \item \textbf{En début d'apprentissage}, on est loin d'un bon minimum : un pas élevé fait progresser vite et le bruit associé aide à sortir des plateaux et des régions mal conditionnées.
+    \item \textbf{En fin d'apprentissage}, ce même pas empêche de converger : les poids oscillent au fond de la cuvette sans s'en approcher davantage, ce qui se voit dans les oscillations de la précision de test d'une époque à l'autre (question 26).
+\end{itemize}
+Faire décroître $\eta$ permet d'avoir les deux : une exploration rapide au début, puis des pas de plus en plus fins qui réduisent la variance des mises à jour et laissent les poids se stabiliser près du minimum. En théorie, la convergence de SGD vers un point stationnaire requiert d'ailleurs une suite de pas décroissante ($\sum_t \eta_t = \infty$ et $\sum_t \eta_t^2 < \infty$). La décroissance exponentielle avec $\gamma = 0.95$ est douce : après 20 époques, le pas est encore à $36\%$ de sa valeur initiale.
 
 \paragraph{28. Bonus : il existe de nombreuses autres variantes de SGD et stratégies de planification du pas d'apprentissage. Lesquelles ? En tester certaines.}
- Momentum de Polyak, Momentum de Nesterov, et méthodes à pas adaptatif : Adam, RMSprop et AdamW.
+ Nous n'avons pas testé ces variantes sur le CNN ; le ViT de la partie 3 utilise toutefois AdamW. Les principales sont :
+\begin{itemize}
+    \item \textbf{Momentum (Polyak) :} $v_{t+1} = \mu v_t + \nabla_\theta \mathcal{L}$, $\theta_{t+1} = \theta_t - \eta v_{t+1}$ (typiquement $\mu = 0.9$). Le gradient est moyenné dans le temps : les composantes qui changent de signe s'annulent, celles qui sont cohérentes s'accumulent, ce qui accélère dans les vallées étroites et réduit les oscillations.
+    \item \textbf{Nesterov :} même principe, mais le gradient est évalué au point anticipé $\theta_t - \eta \mu v_t$, ce qui corrige plus tôt les dépassements.
+    \item \textbf{Méthodes à pas adaptatif :} RMSprop divise le gradient par la racine d'une moyenne mobile de son carré, ce qui donne un pas propre à chaque paramètre. Adam combine ce principe avec le momentum (moyennes mobiles du gradient et de son carré, avec correction de biais). AdamW découple la pénalité de \textit{weight decay} de la mise à jour adaptative, ce qui la rend réellement équivalente à une régularisation $L_2$ ; c'est l'optimiseur standard des Transformers.
+    \item \textbf{Planification du pas :} décroissance par paliers (\texttt{StepLR}, par exemple $\eta$ divisé par 10 aux époques 50 et 75), décroissance cosinus (\texttt{CosineAnnealingLR}), \textit{warmup} linéaire suivi d'une décroissance (indispensable pour les Transformers), ou politique \textit{one-cycle} (montée puis descente du pas).
+\end{itemize}
+Sur des CNN comme le nôtre, SGD avec momentum et un pas décroissant reste souvent la référence en précision finale ; Adam converge plus vite au début et est moins sensible au choix de $\eta$.
 
 \subsection{Régularisation du réseau par \textit{dropout}}
 \paragraph{29. Décrire vos résultats expérimentaux et les comparer aux précédents.}
  \textit{Principe :} le \textit{dropout}~\cite{srivastava2014}, ici \texttt{nn.Dropout(p=0.5)} entre \texttt{fc4} et \texttt{fc5} annule aléatoirement la moitié des activations de \texttt{fc4} à chaque passe d'entraînement. \textit{Pourquoi cela aide :} \texttt{fc4} concentre $86\%$ des paramètres ; le dropout l'empêche de mémoriser en forçant des représentations redondantes et robustes. \textit{Résultats :} le dropout a été évalué conjointement avec la batch normalization (Run B, en plus de la standardisation et de l'augmentation), et non isolément. Run B obtient $84.51\%$ en train et $81.78\%$ en test, contre $86.68\%$ / $78.97\%$ pour le Run A : la précision en train baisse (effet régularisant attendu) tandis que celle en test progresse de $2.8$ points, et l'écart train/test passe de $7.7$ à $2.7$ points. La perte de test descend à $0.53$ (contre $0.65$) et décroît encore à l'époque 20.
 
 \paragraph{30. Qu'est-ce que la régularisation en général ?}
- Toute modification apportée à l'algorithme d'apprentissage visant à réduire l'erreur en test (généralisation) sans nécessairement réduire l'erreur d'entraînement.
+ La régularisation désigne toute modification de l'apprentissage visant à réduire l'erreur de généralisation (en test), éventuellement au prix d'une erreur d'entraînement plus élevée. Elle restreint ou oriente l'espace des solutions accessibles, pour que le modèle préfère des solutions « simples » qui capturent la structure des données plutôt que leur bruit. Elle peut prendre plusieurs formes :
+\begin{itemize}
+    \item \textbf{Pénalités sur les poids :} ajouter $\lambda \|\theta\|_2^2$ (\textit{weight decay}) ou $\lambda \|\theta\|_1$ à la perte ;
+    \item \textbf{Contraintes d'architecture :} partage des poids et connectivité locale des convolutions, réduction du nombre de paramètres ;
+    \item \textbf{Bruit et stochasticité :} dropout, bruit sur les entrées, petits batchs ;
+    \item \textbf{Données :} augmentation de données ;
+    \item \textbf{Procédure d'entraînement :} arrêt précoce (\textit{early stopping}) sur un ensemble de validation.
+\end{itemize}
+Dans nos expériences, l'effet attendu se lit directement : chaque régularisation ajoutée fait baisser la précision de train et monter celle de test, et l'écart train/test passe de $30$ points (base) à $7.7$ (augmentation) puis $2.7$ (dropout et BN).
 
 \paragraph{31. Rechercher et discuter les interprétations possibles de l'effet du \textit{dropout} sur le comportement d'un réseau qui l'utilise.}
  Plusieurs interprétations complémentaires ont été proposées~\cite{srivastava2014} :
@@ -516,10 +566,20 @@ Sur CIFAR-10, Cutout, Mixup et CutMix apportent typiquement un à deux points de
 Dans notre réseau, ces effets se traduisent par une précision en train plus basse et un écart train/test réduit (question 29).
 
 \paragraph{32. Quelle est l'influence de l'hyperparamètre de cette couche ?}
- Si $p=0$, aucune régularisation ; si $p$ est trop élevé ($> 0.7$), le réseau sous-apprend par manque de capacité de transmission du gradient. La valeur standard est $p=0.5$.
+ L'hyperparamètre est la probabilité $p$ de mettre une activation à zéro (dans PyTorch ; certains articles utilisent la probabilité de conservation $1-p$). Il règle la force de la régularisation :
+\begin{itemize}
+    \item \textbf{$p = 0$ :} la couche est l'identité, aucune régularisation ; on retrouve le surapprentissage du modèle de base.
+    \item \textbf{$p$ modéré ($0.2$ à $0.5$) :} bon compromis. La valeur $0.5$, que nous avons utilisée, est la valeur classique pour les couches denses ; on prend plutôt $0.1$ à $0.2$ après les convolutions ou sur les entrées, où l'information est plus redondante entre unités voisines.
+    \item \textbf{$p$ élevé (au-delà de $0.7$ environ) :} trop peu d'unités transmettent le signal à chaque passe. Le gradient devient très bruité, la convergence ralentit, et le réseau peut sous-apprendre (précisions de train et de test basses toutes les deux).
+\end{itemize}
+En pratique, plus le modèle surapprend (beaucoup de paramètres, peu de données), plus $p$ peut être élevé ; il se règle sur un ensemble de validation, et il faut souvent plus d'époques pour converger quand $p$ augmente.
 
 \paragraph{33. Quelle est la différence de comportement de la couche de \textit{dropout} entre l'entraînement et le test ?}
- En train, les activations sont masquées avec probabilité $p$ et divisées par $(1-p)$ (\textit{inverted dropout}) ; en test, la couche est désactivée (fonction identité).
+ \begin{itemize}
+    \item \textbf{En entraînement} (\texttt{model.train()}) : à chaque passe, on tire un masque aléatoire $m_i \sim \text{Bernoulli}(1-p)$ et la sortie vaut $y_i = \frac{m_i\, x_i}{1-p}$. Chaque activation est mise à zéro avec la probabilité $p$, et les activations conservées sont multipliées par $\frac{1}{1-p}$ (\textit{inverted dropout}), de sorte que $\mathbb{E}[y_i] = x_i$.
+    \item \textbf{En test} (\texttt{model.eval()}) : la couche est l'identité, $y_i = x_i$. La prédiction est déterministe et utilise toutes les unités.
+\end{itemize}
+Le facteur $\frac{1}{1-p}$ garantit que l'amplitude moyenne des activations reçues par la couche suivante est la même dans les deux modes. Sans lui (cas de la couche de dropout B testée à la question 20 du chapitre 1-cde), les activations en test seraient en moyenne $\frac{1}{1-p}$ fois plus grandes qu'en entraînement, soit deux fois plus pour $p = 0.5$. Dans la formulation d'origine~\cite{srivastava2014}, on ne divise pas en entraînement mais on multiplie les poids par $1-p$ en test, ce qui est équivalent. Cette différence de comportement impose de bien passer le modèle en mode \texttt{eval()} avant l'évaluation.
 
 \subsection{Utilisation de la \textit{batch normalization}}
 \paragraph{34. Décrire vos résultats expérimentaux et les comparer aux précédents.}
@@ -619,6 +679,14 @@ Pour $X \in \mathbb{R}^{N \times D}$, les Requêtes, Clés et Valeurs sont calcu
 \begin{equation}
     \text{Attention}(X) = \text{softmax}\left(\frac{Q K^\top}{\sqrt{D}}\right) V W_O.
 \end{equation}
+Notre implémentation suit directement cette formule, pour un batch de forme $(B, N, D)$ :
+\begin{enumerate}
+    \item quatre couches \texttt{nn.Linear(D, D)} (avec biais) calculent $Q$, $K$, $V$ et la projection finale $W_O$ ;
+    \item \texttt{torch.bmm(q, k.transpose(1, 2))} donne les scores $QK^\top$ de forme $(B, N, N)$ : le coefficient $(i, j)$ mesure la similarité entre la requête du token $i$ et la clé du token $j$ ;
+    \item les scores sont multipliés par $1/\sqrt{D}$ puis passés dans un softmax sur la dernière dimension (\texttt{dim=-1}) : chaque ligne $i$ devient une distribution de probabilité sur les $N$ tokens ;
+    \item \texttt{torch.bmm(attention, v)} calcule pour chaque token la moyenne des valeurs pondérée par ces probabilités, puis la projection $W_O$ est appliquée. La sortie a la même forme $(B, N, D)$ que l'entrée.
+\end{enumerate}
+\textbf{Rôle du facteur $1/\sqrt{D}$ :} si les composantes de $q$ et $k$ sont centrées et de variance 1, le produit scalaire $q \cdot k$ a une variance $D$. Sans normalisation, les scores deviennent grands quand $D$ augmente, le softmax sature (presque tout le poids sur un seul token) et ses gradients deviennent quasi nuls. Diviser par $\sqrt{D}$ ramène la variance des scores à 1. La version multi-têtes fournie applique le même calcul en parallèle sur $h$ sous-espaces de dimension $D/h$ (avec un facteur $1/\sqrt{D/h}$), puis concatène les résultats avant la projection finale, ce qui permet à chaque tête de se spécialiser dans un type de relation.
 
 \paragraph{23. $\bigstar$ Quelle est la principale différence entre l'auto-attention et une convolution, en termes d'entrées dont dépend une sortie ? Quel est son principal coût en calcul et en mémoire ?}
 \begin{itemize}
@@ -669,7 +737,15 @@ Notre \texttt{SelfAttention} & True & True & True & True & True \\
 
 \subsection{Le ViT complet}
 \paragraph{25. Compléter le modèle ViT : un \textit{class token} appris, un plongement positionnel appris (un vecteur par token, [CLS] compris) et une tête linéaire appliquée au token [CLS] de sortie.}
-Le modèle complet intègre le patch embedding, le token \texttt{[CLS]} apprenable concaténé en tête, l'addition des plongements positionnels, l'empilement des blocs Transformer (MultiHeadSelfAttention + MLP avec LayerNorm et résidus), et la tête linéaire branchée sur le token \texttt{[CLS]} de sortie.
+Le modèle complet enchaîne les étapes suivantes, pour une image $3 \times 28 \times 28$, des patchs $4 \times 4$ et $D = 128$ :
+\begin{enumerate}
+    \item \textbf{Patch embedding} (question 21) : l'image devient une séquence de $N = 49$ tokens, de forme $(B, 49, 128)$.
+    \item \textbf{Token [CLS]} : un vecteur appris \texttt{nn.Parameter} de forme $(1, 1, D)$, dupliqué pour chaque image du batch (\texttt{expand}) et concaténé en tête de séquence : $(B, 50, 128)$.
+    \item \textbf{Plongement positionnel} : un tenseur appris de forme $(1, N + 1, D)$, soit un vecteur par position, [CLS] compris, ajouté aux tokens par diffusion sur le batch. Le token [CLS] et les plongements positionnels sont initialisés à zéro ; ils se différencient dès les premières mises à jour, puisque chaque position reçoit un gradient différent.
+    \item \textbf{4 blocs Transformer} en pré-normalisation : $x \leftarrow x + \text{MHSA}(\text{LN}(x))$, puis $x \leftarrow x + \text{MLP}(\text{LN}(x))$, avec une auto-attention à 4 têtes et un MLP $D \to 4D \to D$ à activation GELU. Les connexions résiduelles et la LayerNorm stabilisent l'apprentissage de ce réseau profond.
+    \item \textbf{Classification} : une LayerNorm finale, puis la tête \texttt{nn.Linear(D, 10)} appliquée au seul token [CLS] de sortie (\texttt{x[:, 0]}), qui donne les 10 scores de classe.
+\end{enumerate}
+Le modèle compte $807\,434$ paramètres, dont seulement $128 + 50 \times 128 = 6\,528$ pour le token [CLS] et les plongements positionnels.
 
 \paragraph{26. $\bigstar$ Qu'est-ce que le token [CLS] et pourquoi l'utilise-t-on ? Pourquoi le plongement positionnel est-il nécessaire (que calculerait le réseau sans lui) ?}
 \begin{itemize}
